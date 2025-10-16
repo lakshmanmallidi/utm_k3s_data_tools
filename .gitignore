@@ -1,0 +1,227 @@
+# UTM K3s Data Tools Repository - .gitignore
+
+# Node.js Dependencies (for MyKart and other Node.js tools)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# React.js Build Files (MyKart frontend)
+build/
+dist/
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.eslintcache
+
+# Production builds
+*/client/build/
+*/web-app/client/build/
+*/frontend/build/
+
+# Kubernetes & kubectl Configuration Files
+*.kubeconfig
+kubeconfig*
+.kube/
+k8s-configs/
+kubernetes-manifests/
+kube-system/
+*.yaml.backup
+*.yml.backup
+
+# Kubernetes Secrets and Sensitive Data
+*secret*.yaml
+*secret*.yml
+*configmap*.yaml
+*configmap*.yml
+tls-*.yaml
+certificates/
+*.pem
+*.key
+*.crt
+*.csr
+
+# Kafka Related Files
+kafka-logs/
+kafka-data/
+zookeeper-data/
+*.kafka
+kafka-*.log
+server.properties.backup
+
+# PostgreSQL Database Files
+postgres-data/
+postgresql-data/
+*.sql.backup
+*.sql.dump
+*.bak
+database-backups/
+pg_data/
+pgdata/
+
+# Docker Related (if using Docker)
+Dockerfile.*
+docker-compose*.yml
+.dockerignore
+docker-data/
+
+# Helm Charts (if using Helm)
+charts/
+*.tgz
+helm-*.yaml
+
+# Persistent Volume Data
+pv-data/
+persistent-volumes/
+storage-data/
+
+# Log Files
+logs/
+*.log
+*.out
+application-logs/
+
+# Temporary Files and Directories
+tmp/
+temp/
+.tmp/
+cache/
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.sublime-*
+
+# macOS Specific
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows Specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux Specific
+*~
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+!.env.template
+
+# SSL/TLS Certificates
+ssl/
+tls/
+certs/
+
+# Backup Files
+*.backup
+*.old
+*.orig
+*~
+
+# Compressed Files
+*.zip
+*.tar.gz
+*.rar
+*.tar
+*.gz
+
+# Runtime Data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage Reports
+coverage/
+*.lcov
+.nyc_output
+
+# Test Results
+test-results/
+junit.xml
+
+# Generated Documentation
+docs/build/
+docs/_build/
+site/
+
+# Local Configuration Overrides
+local-config.*
+override-config.*
+custom-config.*
+
+# MyKart Specific
+mykart/web-app/node_modules/
+mykart/web-app/client/node_modules/
+mykart/database/data/
+
+# Monitoring and Metrics Data
+prometheus-data/
+grafana-data/
+monitoring-data/
+
+# Service Mesh Configurations (if using Istio, Linkerd, etc.)
+istio-configs/
+linkerd-configs/
+service-mesh/
+
+# Development Tool Configurations
+.terraform/
+terraform.tfstate*
+.ansible/
+vagrant/
+.vagrant/
+
+# CI/CD Pipeline Artifacts
+.github/workflows/*.backup
+.gitlab-ci.yml.backup
+jenkins/
+ci-artifacts/
+
+# Load Testing Results
+load-test-results/
+performance-data/
+
+# Security Scan Results
+security-reports/
+vulnerability-scans/
+
+# Local Development Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Redis Data (if using Redis)
+redis-data/
+dump.rdb
+
+# Message Queue Data
+rabbitmq-data/
+activemq-data/
+
+# Elasticsearch/OpenSearch Data
+elasticsearch-data/
+opensearch-data/
+
+# Custom Tool Configurations
+tools-config/
+local-tools/

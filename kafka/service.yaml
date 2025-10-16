@@ -1,0 +1,32 @@
+# ClusterIP Service for Internal Access to Kafka
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  labels:
+    app: kafka-kraft
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9092
+    targetPort: 9092
+    name: kafka
+  selector:
+    app: kafka-kraft
+
+---
+# LoadBalancer Service for External Access to Kafka
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-external
+  labels:
+    app: kafka-kraft
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 9092
+    targetPort: 9092
+    name: kafka
+  selector:
+    app: kafka-kraft

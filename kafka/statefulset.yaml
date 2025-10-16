@@ -1,0 +1,91 @@
+# StatefulSet for Single-Node Kafka Broker/Controller (KRaft Mode)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka-kraft
+spec:
+  serviceName: "kafka"
+  replicas: 1  # Single node cluster
+  selector:
+    matchLabels:
+      app: kafka-kraft
+  template:
+    metadata:
+      labels:
+        app: kafka-kraft
+    spec:
+      containers:
+      - name: kafka
+        image: apache/kafka:3.7.0
+        ports:
+        - containerPort: 9092
+          name: plaintext
+        - containerPort: 9093
+          name: controller
+        command:
+        - sh
+        - -c
+        - |
+          # Format storage and start Kafka in KRaft mode
+          export CLUSTER_ID="MkU3OEVBTzU2N0Y0N0JBRg"
+          
+          # Extract node ID from hostname (kafka-kraft-0 -> 0)
+          NODE_ID=${HOSTNAME##*-}
+          
+          # Create server.properties for KRaft mode (single node)
+          cat > /tmp/kraft/server.properties << EOF
+          process.roles=broker,controller
+          node.id=$NODE_ID
+          controller.quorum.voters=0@localhost:9093
+          listeners=PLAINTEXT://:9092,CONTROLLER://:9093
+          inter.broker.listener.name=PLAINTEXT
+          advertised.listeners=PLAINTEXT://kafka:9092
+          controller.listener.names=CONTROLLER
+          log.dirs=/var/lib/kafka/data
+          num.network.threads=3
+          num.io.threads=8
+          socket.send.buffer.bytes=102400
+          socket.receive.buffer.bytes=102400
+          socket.request.max.bytes=104857600
+          # Single node settings
+          offsets.topic.replication.factor=1
+          transaction.state.log.replication.factor=1
+          transaction.state.log.min.isr=1
+          default.replication.factor=1
+          min.insync.replicas=1
+          EOF
+          
+          # Only format storage if it's not already initialized (avoid data loss)
+          if [ ! -f /var/lib/kafka/data/meta.properties ]; then
+            echo "Initializing storage for first time..."
+            /opt/kafka/bin/kafka-storage.sh format -t $CLUSTER_ID -c /tmp/kraft/server.properties
+          else
+            echo "Storage already initialized, skipping format to preserve data"
+          fi
+          
+          # Start Kafka
+          exec /opt/kafka/bin/kafka-server-start.sh /tmp/kraft/server.properties
+        volumeMounts:
+        - name: kafka-data
+          mountPath: /var/lib/kafka/data
+        - name: config-dir
+          mountPath: /tmp/kraft
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+      volumes:
+      - name: config-dir
+        emptyDir: {}
+  volumeClaimTemplates:
+  - metadata:
+      name: kafka-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "local-path"  # Using K3s default storage class
+      resources:
+        requests:
+          storage: 5Gi  # Storage for single node

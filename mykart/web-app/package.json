@@ -1,0 +1,24 @@
+{
+  "name": "mykart-webapp",
+  "version": "1.0.0",
+  "description": "MyKart E-commerce Web Application with React",
+  "main": "server.js",
+  "scripts": {
+    "start": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "node server.js",
+    "client": "cd client && npm start",
+    "dev": "npm start",
+    "build": "cd client && npm run build",
+    "install-client": "cd client && npm install"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "pg": "^8.11.3",
+    "cors": "^2.8.5",
+    "body-parser": "^1.20.2",
+    "concurrently": "^8.2.2"
+  },
+  "keywords": ["ecommerce", "react", "postgresql"],
+  "author": "MyKart Team",
+  "license": "MIT"
+}
