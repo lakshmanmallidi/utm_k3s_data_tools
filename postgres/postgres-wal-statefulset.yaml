@@ -1,0 +1,185 @@
+# PostgreSQL StatefulSet with WAL Configuration for Debezium CDC
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-wal-config
+  labels:
+    app: postgres
+data:
+  postgresql.conf: |
+    # WAL Configuration for Debezium CDC
+    wal_level = logical
+    archive_mode = on
+    archive_command = 'cp %p /var/lib/postgresql/archive/%f'
+    max_wal_senders = 10
+    max_replication_slots = 10
+    wal_keep_size = 1GB
+    wal_buffers = 16MB
+    checkpoint_completion_target = 0.9
+    max_wal_size = 2GB
+    min_wal_size = 80MB
+    log_checkpoints = on
+    hot_standby = on
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-scripts
+  labels:
+    app: postgres
+data:
+  init_debezium.sql: |
+    -- Debezium Setup for MyKart Database
+    -- This script creates the necessary user, permissions, and publications for Debezium CDC
+
+    -- Create Debezium user with replication privileges
+    DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_user WHERE usename = 'debezium_user') THEN
+            CREATE USER debezium_user WITH REPLICATION PASSWORD 'debezium_pass';
+        END IF;
+    END
+    $$;
+
+    -- Grant necessary permissions to debezium_user
+    GRANT CONNECT ON DATABASE mydb TO debezium_user;
+    GRANT USAGE ON SCHEMA public TO debezium_user;
+    GRANT SELECT ON ALL TABLES IN SCHEMA public TO debezium_user;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO debezium_user;
+
+    -- Create publication for Debezium (if not exists)
+    DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'debezium_publication') THEN
+            CREATE PUBLICATION debezium_publication FOR ALL TABLES;
+        END IF;
+    END
+    $$;
+
+    -- Create replication slot for Debezium (if not exists)
+    DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = 'debezium_mykart_slot') THEN
+            PERFORM pg_create_logical_replication_slot('debezium_mykart_slot', 'pgoutput');
+        END IF;
+    END
+    $$;
+
+    -- Verify setup
+    \echo '=== Debezium Setup Verification ==='
+    SELECT 'WAL Level: ' || setting as info FROM pg_settings WHERE name = 'wal_level';
+    SELECT 'Debezium User: ' || usename || ' (replication: ' || CASE WHEN rolreplication THEN 'yes' ELSE 'no' END || ')' as info FROM pg_user WHERE usename = 'debezium_user';
+    SELECT 'Publication: ' || pubname || ' (all tables: ' || CASE WHEN puballtables THEN 'yes' ELSE 'no' END || ')' as info FROM pg_publication WHERE pubname = 'debezium_publication';
+    SELECT 'Replication Slot: ' || slot_name || ' (' || plugin || ')' as info FROM pg_replication_slots WHERE slot_name = 'debezium_mykart_slot';
+    \echo '================================='
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-wal
+  labels:
+    app: postgres-wal
+spec:
+  serviceName: "postgres-wal"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-wal
+  template:
+    metadata:
+      labels:
+        app: postgres-wal
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_DB
+          value: "mydb"
+        - name: POSTGRES_USER
+          value: "admin"
+        - name: POSTGRES_PASSWORD
+          value: "password123"  # Change this in production
+        - name: PGDATA
+          value: "/var/lib/postgresql/data/pgdata"
+        command:
+        - sh
+        - -c
+        - |
+          # Create archive directory
+          mkdir -p /var/lib/postgresql/archive
+          chown -R postgres:postgres /var/lib/postgresql/archive
+          
+          # Copy custom configuration
+          cp /etc/postgresql/postgresql.conf /var/lib/postgresql/data/pgdata/postgresql.conf
+          
+          # Copy initialization scripts to the standard location
+          cp /docker-entrypoint-initdb.d/init_debezium.sql /docker-entrypoint-initdb.d/01_init_debezium.sql 2>/dev/null || true
+          
+          # Start PostgreSQL with standard entrypoint (this handles init scripts)
+          exec docker-entrypoint.sh postgres -c config_file=/var/lib/postgresql/data/pgdata/postgresql.conf
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        - name: postgres-archive
+          mountPath: /var/lib/postgresql/archive
+        - name: postgres-config
+          mountPath: /etc/postgresql
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - admin
+            - -d
+            - mydb
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - admin
+            - -d
+            - mydb
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: postgres-config
+        configMap:
+          name: postgres-wal-config
+      - name: init-scripts
+        configMap:
+          name: postgres-init-scripts
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "local-path"
+      resources:
+        requests:
+          storage: 5Gi
+  - metadata:
+      name: postgres-archive
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "local-path"
+      resources:
+        requests:
+          storage: 2Gi

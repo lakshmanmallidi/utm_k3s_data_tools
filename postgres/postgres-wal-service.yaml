@@ -1,10 +1,10 @@
-# ClusterIP Service for Internal Access to PostgreSQL
+# Services for PostgreSQL with WAL
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres
+  name: postgres-wal
   labels:
-    app: postgres
+    app: postgres-wal
 spec:
   type: ClusterIP
   ports:
@@ -12,16 +12,15 @@ spec:
     targetPort: 5432
     name: postgres
   selector:
-    app: postgres
+    app: postgres-wal
 
 ---
-# LoadBalancer Service for External Access to PostgreSQL
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres-external
+  name: postgres-wal-external
   labels:
-    app: postgres
+    app: postgres-wal
 spec:
   type: LoadBalancer
   ports:
@@ -29,4 +28,4 @@ spec:
     targetPort: 5432
     name: postgres
   selector:
-    app: postgres
+    app: postgres-wal
