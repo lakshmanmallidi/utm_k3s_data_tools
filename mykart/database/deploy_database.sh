@@ -8,15 +8,15 @@ echo "================================"
 
 # Check if PostgreSQL pod is running
 echo "Checking PostgreSQL connection..."
-if ! kubectl get pod postgres-0 &> /dev/null; then
-    echo "❌ Error: PostgreSQL pod 'postgres-0' not found!"
-    echo "Please ensure PostgreSQL is deployed first."
+if ! kubectl get pod postgres-wal-0 &> /dev/null; then
+    echo "❌ Error: PostgreSQL pod 'postgres-wal-0' not found!"
+    echo "Please ensure PostgreSQL WAL is deployed first."
     exit 1
 fi
 
 # Test PostgreSQL connection
 echo "Testing database connection..."
-if ! kubectl exec postgres-0 -- pg_isready -U admin > /dev/null 2>&1; then
+if ! kubectl exec postgres-wal-0 -- pg_isready -U admin -d mydb > /dev/null 2>&1; then
     echo "❌ Error: Cannot connect to PostgreSQL!"
     echo "Please check if PostgreSQL is running properly."
     exit 1
@@ -26,7 +26,7 @@ echo "✅ PostgreSQL connection successful!"
 
 # Copy SQL file to PostgreSQL pod
 echo "📁 Copying database initialization script..."
-kubectl cp init_mykart_db.sql postgres-0:/tmp/
+kubectl cp init_mykart_db.sql postgres-wal-0:/tmp/
 
 # Execute the SQL script
 echo "🚀 Executing database initialization..."
@@ -40,7 +40,7 @@ fi
 
 # Run the initialization script
 echo "📊 Creating MyKart database and tables..."
-kubectl exec -i postgres-0 -- psql -U admin -d postgres < /dev/stdin << 'EOF'
+kubectl exec -i postgres-wal-0 -- psql -U admin -d postgres < /dev/stdin << 'EOF'
 \i /tmp/init_mykart_db.sql
 EOF
 
@@ -51,12 +51,12 @@ if [ $? -eq 0 ]; then
     echo "📈 Verifying database setup..."
     
     # Count products
-    PRODUCT_COUNT=$(kubectl exec postgres-0 -- psql -U admin -d mykart -t -c "SELECT COUNT(*) FROM products;" | tr -d ' ')
+    PRODUCT_COUNT=$(kubectl exec postgres-wal-0 -- psql -U admin -d mykart -t -c "SELECT COUNT(*) FROM products;" | tr -d ' ')
     echo "   📦 Products created: $PRODUCT_COUNT"
     
     # List tables
     echo "   📋 Tables created:"
-    kubectl exec postgres-0 -- psql -U admin -d mykart -c "\dt" | grep -E "products|orders|order_line_items|cart_events|clicks|impressions|page_hits" | awk '{print "      - " $3}'
+    kubectl exec postgres-wal-0 -- psql -U admin -d mykart -c "\dt" | grep -E "products|orders|order_line_items|cart_events|clicks|impressions|page_hits" | awk '{print "      - " $3}'
     
     echo ""
     echo "🎉 MyKart database is ready!"
@@ -66,10 +66,10 @@ if [ $? -eq 0 ]; then
     echo "   Username: admin"
     echo "   Password: password123"
     echo "   Internal: postgres:5432"
-    echo "   External: $(kubectl get svc postgres-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):5432"
+    echo "   External: $(kubectl get svc postgres-wal-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):5432"
     echo ""
     echo "🔍 Quick test:"
-    echo "   kubectl exec -it postgres-0 -- psql -U admin -d mykart -c \"SELECT name, price FROM products LIMIT 5;\""
+    echo "   kubectl exec -it postgres-wal-0 -- psql -U admin -d mykart -c \"SELECT name, price FROM products LIMIT 5;\""
     
 else
     echo "❌ Database initialization failed!"

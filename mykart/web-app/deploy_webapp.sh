@@ -39,9 +39,9 @@ echo "✅ All dependencies installed successfully!"
 
 # Check PostgreSQL connection
 echo "🔗 Checking database connection..."
-if ! kubectl get pod postgres-0 &> /dev/null; then
-    echo "⚠️  Warning: PostgreSQL pod 'postgres-0' not found!"
-    echo "Make sure PostgreSQL is deployed and the MyKart database is initialized."
+if ! kubectl get pod postgres-wal-0 &> /dev/null; then
+    echo "⚠️  Warning: PostgreSQL pod 'postgres-wal-0' not found!"
+    echo "Make sure PostgreSQL WAL is deployed and the MyKart database is initialized."
     echo "You can still run the web app, but it won't connect to the database."
 fi
 
@@ -52,43 +52,50 @@ echo "   🖥️  React Frontend: http://localhost:3000"
 echo "   � API Backend: http://localhost:3001"
 echo ""
 echo "💡 Tips:"
-echo "   • Make sure PostgreSQL is running: kubectl get pods -l app=postgres"
+echo "   • Make sure PostgreSQL is running: kubectl get pods -l app=postgres-wal"
 echo "   • Initialize database: cd ../database && ./deploy_database.sh"
 echo "   • The React app will automatically proxy API calls to the backend"
 echo "   • Press Ctrl+C to stop both servers"
 echo ""
 
-# Set environment variables for database connection
-export DB_HOST="localhost"  # Change to 'postgres' if running in Kubernetes
-export DB_PORT="5432"
+# Get LoadBalancer external IP dynamically
+POSTGRES_EXTERNAL_IP=$(kubectl get svc postgres-wal-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+
+if [ -z "$POSTGRES_EXTERNAL_IP" ]; then
+    echo "⚠️  Warning: Could not get PostgreSQL external IP, using default..."
+    POSTGRES_EXTERNAL_IP="192.168.0.25"
+fi
+
+echo "🔗 Testing PostgreSQL LoadBalancer connection to $POSTGRES_EXTERNAL_IP:5432..."
+
+# Test direct LoadBalancer connection
+if nc -zv $POSTGRES_EXTERNAL_IP 5432 2>/dev/null; then
+    echo "✅ Direct LoadBalancer connection successful!"
+    export DB_HOST="$POSTGRES_EXTERNAL_IP"
+    export DB_PORT="5432"
+else
+    echo "❌ LoadBalancer connection failed!"
+    exit 1
+fi
+
 export DB_NAME="mykart"
 export DB_USER="admin"
 export DB_PASSWORD="password123"
 
-# If running in Kubernetes environment, use port-forward to connect to PostgreSQL
-if kubectl get pod postgres-0 &> /dev/null; then
-    echo "🔀 Setting up port forwarding to PostgreSQL..."
-    kubectl port-forward svc/postgres 5432:5432 &
-    PF_PID=$!
-    
-    # Wait a moment for port forwarding to establish
-    sleep 3
-    
-    # Cleanup function
-    cleanup() {
-        echo "🧹 Cleaning up..."
-        if [ ! -z "$PF_PID" ]; then
-            kill $PF_PID 2>/dev/null
-        fi
-        # Kill any remaining npm processes
-        pkill -f "react-scripts start" 2>/dev/null
-        pkill -f "node server.js" 2>/dev/null
-        exit 0
-    }
-    
-    # Set trap to cleanup on script exit
-    trap cleanup SIGINT SIGTERM
-fi
+# Cleanup function
+cleanup() {
+    echo "🧹 Cleaning up..."
+    if [ ! -z "$PF_PID" ]; then
+        kill $PF_PID 2>/dev/null
+    fi
+    # Kill any remaining npm processes
+    pkill -f "react-scripts start" 2>/dev/null
+    pkill -f "node server.js" 2>/dev/null
+    exit 0
+}
+
+# Set trap to cleanup on script exit
+trap cleanup SIGINT SIGTERM
 
 echo "🎯 Starting both React frontend and Node.js backend..."
 
