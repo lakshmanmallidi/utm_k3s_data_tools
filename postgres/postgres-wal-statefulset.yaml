@@ -33,10 +33,10 @@ metadata:
     app: postgres
 data:
   init_debezium.sql: |
-    -- Debezium Setup for MyKart Database
-    -- This script creates the necessary user, permissions, and publications for Debezium CDC
+    -- Debezium Setup for CDC across multiple databases
+    -- This script creates the necessary user, permissions, and setup for Debezium CDC
 
-    -- Create Debezium user with replication privileges
+    -- Create Debezium user with proper CDC permissions (not superuser)
     DO $$
     BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_user WHERE usename = 'debezium_user') THEN
@@ -45,13 +45,17 @@ data:
     END
     $$;
 
-    -- Grant necessary permissions to debezium_user
+    -- Grant necessary system-level permissions for Debezium CDC
+    -- These permissions allow Debezium to function without superuser privileges
     GRANT CONNECT ON DATABASE mydb TO debezium_user;
     GRANT USAGE ON SCHEMA public TO debezium_user;
     GRANT SELECT ON ALL TABLES IN SCHEMA public TO debezium_user;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO debezium_user;
 
-    -- Create publication for Debezium (if not exists)
+    -- Grant database creation permission for Debezium operations
+    ALTER USER debezium_user CREATEDB;
+
+    -- Create publication for Debezium in mydb (if not exists)
     DO $$
     BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'debezium_publication') THEN
@@ -60,22 +64,59 @@ data:
     END
     $$;
 
-    -- Create replication slot for Debezium (if not exists)
-    DO $$
+    -- Note: Replication slots will be created by Debezium connectors as needed
+    -- This allows for multiple databases and connectors to coexist
+
+    -- Create function to setup Debezium permissions on any database
+    -- This function can be called after creating new databases
+    CREATE OR REPLACE FUNCTION setup_debezium_for_database(db_name TEXT) 
+    RETURNS VOID AS $func$
+    DECLARE
+        sql_cmd TEXT;
     BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = 'debezium_mykart_slot') THEN
-            PERFORM pg_create_logical_replication_slot('debezium_mykart_slot', 'pgoutput');
+        -- Grant connect permission
+        sql_cmd := format('GRANT CONNECT ON DATABASE %I TO debezium_user', db_name);
+        EXECUTE sql_cmd;
+        
+        -- Note: USAGE and SELECT grants must be done within the target database context
+        RAISE NOTICE 'Granted CONNECT on database % to debezium_user. Run setup_debezium_schema_permissions() within the database.', db_name;
+    END;
+    $func$ LANGUAGE plpgsql;
+
+    -- Create function to setup schema-level permissions (to be run within target database)
+    CREATE OR REPLACE FUNCTION setup_debezium_schema_permissions() 
+    RETURNS VOID AS $func$
+    BEGIN
+        -- Grant schema usage
+        GRANT USAGE ON SCHEMA public TO debezium_user;
+        
+        -- Grant select on all existing tables
+        GRANT SELECT ON ALL TABLES IN SCHEMA public TO debezium_user;
+        
+        -- Grant select on all future tables
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO debezium_user;
+        
+        -- Create publication for this database if it doesn't exist
+        IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'debezium_publication') THEN
+            CREATE PUBLICATION debezium_publication FOR ALL TABLES;
         END IF;
-    END
-    $$;
+        
+        -- Change publication owner to debezium_user for proper permissions
+        ALTER PUBLICATION debezium_publication OWNER TO debezium_user;
+        
+        RAISE NOTICE 'Debezium permissions setup completed for current database';
+    END;
+    $func$ LANGUAGE plpgsql;
 
     -- Verify setup
     \echo '=== Debezium Setup Verification ==='
-    SELECT 'WAL Level: ' || setting as info FROM pg_settings WHERE name = 'wal_level';
-    SELECT 'Debezium User: ' || usename || ' (replication: ' || CASE WHEN rolreplication THEN 'yes' ELSE 'no' END || ')' as info FROM pg_user WHERE usename = 'debezium_user';
-    SELECT 'Publication: ' || pubname || ' (all tables: ' || CASE WHEN puballtables THEN 'yes' ELSE 'no' END || ')' as info FROM pg_publication WHERE pubname = 'debezium_publication';
-    SELECT 'Replication Slot: ' || slot_name || ' (' || plugin || ')' as info FROM pg_replication_slots WHERE slot_name = 'debezium_mykart_slot';
+    SELECT 'WAL Level: ' || setting as verification FROM pg_settings WHERE name = 'wal_level';
+    SELECT 'Debezium User: EXISTS' as verification FROM pg_user WHERE usename = 'debezium_user';
+    SELECT 'Publication: EXISTS' as verification FROM pg_publication WHERE pubname = 'debezium_publication';
+    SELECT 'Helper Functions: ' || COUNT(*) as verification FROM pg_proc WHERE proname LIKE 'setup_debezium%';
     \echo '================================='
+    \echo 'PostgreSQL is ready for Debezium CDC with any application database'
+    \echo 'Use setup_debezium_for_database(''db_name'') after creating new databases'
 
 ---
 apiVersion: apps/v1
@@ -97,7 +138,7 @@ spec:
     spec:
       containers:
       - name: postgres
-        image: postgres:15-alpine
+        image: postgres:16.10-alpine3.22
         ports:
         - containerPort: 5432
           name: postgres
@@ -110,22 +151,9 @@ spec:
           value: "password123"  # Change this in production
         - name: PGDATA
           value: "/var/lib/postgresql/data/pgdata"
-        command:
-        - sh
+        args:
         - -c
-        - |
-          # Create archive directory
-          mkdir -p /var/lib/postgresql/archive
-          chown -R postgres:postgres /var/lib/postgresql/archive
-          
-          # Copy custom configuration
-          cp /etc/postgresql/postgresql.conf /var/lib/postgresql/data/pgdata/postgresql.conf
-          
-          # Copy initialization scripts to the standard location
-          cp /docker-entrypoint-initdb.d/init_debezium.sql /docker-entrypoint-initdb.d/01_init_debezium.sql 2>/dev/null || true
-          
-          # Start PostgreSQL with standard entrypoint (this handles init scripts)
-          exec docker-entrypoint.sh postgres -c config_file=/var/lib/postgresql/data/pgdata/postgresql.conf
+        - config_file=/etc/postgresql/postgresql.conf
         volumeMounts:
         - name: postgres-data
           mountPath: /var/lib/postgresql/data

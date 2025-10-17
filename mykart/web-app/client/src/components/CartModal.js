@@ -112,7 +112,7 @@ const EmptyCart = styled.div`
 `;
 
 const CartModal = ({ show, cartItems, onClose, onRemoveItem, onPlaceOrder }) => {
-  const total = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const total = cartItems.reduce((sum, item) => sum + (parseFloat(item.price) * item.quantity), 0);
 
   return (
     <Modal show={show} onClick={onClose}>
@@ -129,7 +129,7 @@ const CartModal = ({ show, cartItems, onClose, onRemoveItem, onPlaceOrder }) => 
                 <ItemInfo>
                   <ItemName>{item.name}</ItemName>
                   <ItemDetails>
-                    ${item.price.toFixed(2)} × {item.quantity} = ${(item.price * item.quantity).toFixed(2)}
+                    ${parseFloat(item.price).toFixed(2)} × {item.quantity} = ${(parseFloat(item.price) * item.quantity).toFixed(2)}
                   </ItemDetails>
                 </ItemInfo>
                 <RemoveBtn onClick={() => onRemoveItem(item.product_id)}>

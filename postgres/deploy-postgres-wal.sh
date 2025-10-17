@@ -2,11 +2,9 @@
 
 # PostgreSQL with WAL and Debezium Setup Deployment Script
 # This script deploys PostgreSQL with WAL archiving and Debezium CDC support
-# Including MyKart e-commerce database with 1000+ products
+# Usage: ./deploy-postgres-wal.sh [deploy|delete]
 
 set -e
-
-echo "� Starting PostgreSQL WAL + Debezium Setup Deployment..."
 
 # Colors for output
 RED='\033[0;31m'
@@ -31,6 +29,30 @@ print_warning() {
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
+
+# Function to show usage
+show_usage() {
+    echo "Usage: $0 [deploy|delete]"
+    echo "  deploy - Deploy PostgreSQL with WAL and Debezium support (default)"
+    echo "  delete - Delete existing PostgreSQL deployment"
+    exit 1
+}
+
+# Parse command line arguments
+ACTION=${1:-deploy}
+
+case $ACTION in
+    deploy)
+        echo "🚀 Starting PostgreSQL WAL + Debezium Setup Deployment..."
+        ;;
+    delete)
+        echo "🗑️ Starting PostgreSQL WAL + Debezium Setup Deletion..."
+        ;;
+    *)
+        print_error "Invalid action: $ACTION"
+        show_usage
+        ;;
+esac
 
 # Check if kubectl is available
 if ! command -v kubectl &> /dev/null; then
@@ -63,20 +85,34 @@ wait_for_pod() {
     fi
 }
 
-# Clean up existing deployment if exists
-print_status "Cleaning up existing PostgreSQL deployment..."
-kubectl delete statefulset postgres-wal --ignore-not-found=true
-kubectl delete configmap postgres-wal-config postgres-init-scripts --ignore-not-found=true
-kubectl delete service postgres-wal --ignore-not-found=true
-kubectl delete pvc --selector=app=postgres-wal --ignore-not-found=true
+# Function to delete PostgreSQL deployment
+delete_postgres() {
+    print_status "Cleaning up existing PostgreSQL deployment..."
+    kubectl delete statefulset postgres-wal --ignore-not-found=true
+    kubectl delete configmap postgres-wal-config postgres-init-scripts --ignore-not-found=true
+    kubectl delete service postgres-wal postgres-wal-external --ignore-not-found=true
+    kubectl delete pvc --selector=app=postgres-wal --ignore-not-found=true
 
-print_success "Cleanup completed"
+    print_success "PostgreSQL deployment deleted successfully"
+    echo
+    print_success "🗑️ PostgreSQL WAL + Debezium Setup Deletion Complete!"
+}
 
-# Wait a bit for cleanup to complete
-sleep 5
+# Function to deploy PostgreSQL
+deploy_postgres() {
+    print_status "Cleaning up existing PostgreSQL deployment..."
+    kubectl delete statefulset postgres-wal --ignore-not-found=true
+    kubectl delete configmap postgres-wal-config postgres-init-scripts --ignore-not-found=true
+    kubectl delete service postgres-wal postgres-wal-external --ignore-not-found=true
+    kubectl delete pvc --selector=app=postgres-wal --ignore-not-found=true
 
-# Deploy PostgreSQL StatefulSet with WAL and Debezium support
-print_status "Deploying PostgreSQL StatefulSet with WAL and Debezium configuration..."
+    print_success "Cleanup completed"
+
+    # Wait a bit for cleanup to complete
+    sleep 5
+
+    # Deploy PostgreSQL StatefulSet with WAL and Debezium support
+    print_status "Deploying PostgreSQL StatefulSet with WAL and Debezium configuration..."
 kubectl apply -f postgres-wal-statefulset.yaml
 
 if [ $? -eq 0 ]; then
@@ -156,7 +192,7 @@ SELECT 'Total databases: ' || COUNT(*) FROM pg_database WHERE datname NOT IN ('t
 print_success "🎉 PostgreSQL WAL + Debezium Setup Deployment Complete!"
 echo
 print_status "Summary:"
-echo "  • PostgreSQL 15 with logical WAL level for Debezium CDC"
+echo "  • PostgreSQL 16.10 with logical WAL level for Debezium CDC"
 echo "  • WAL archiving enabled with persistent storage"  
 echo "  • Debezium user and replication slot created"
 echo "  • Ready for any application database initialization"
@@ -176,3 +212,30 @@ echo "  2. Configure Debezium connector to point to application databases"
 echo "  3. All tables created will automatically be included in CDC via 'FOR ALL TABLES' publication"
 echo
 print_success "Ready for Debezium connector configuration!"
+}
+
+# Main execution
+# Check if kubectl is available
+if ! command -v kubectl &> /dev/null; then
+    print_error "kubectl is not installed or not in PATH"
+    exit 1
+fi
+
+# Check if connected to k3s cluster
+print_status "Checking Kubernetes cluster connection..."
+if ! kubectl cluster-info &> /dev/null; then
+    print_error "Not connected to Kubernetes cluster"
+    exit 1
+fi
+
+print_success "Connected to Kubernetes cluster"
+
+# Execute based on action
+case $ACTION in
+    deploy)
+        deploy_postgres
+        ;;
+    delete)
+        delete_postgres
+        ;;
+esac

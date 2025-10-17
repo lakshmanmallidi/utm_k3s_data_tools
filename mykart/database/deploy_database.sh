@@ -47,6 +47,20 @@ EOF
 if [ $? -eq 0 ]; then
     echo "✅ Database initialization completed successfully!"
     
+    # Setup Debezium permissions for mykart database using generic setup script
+    echo "🔐 Setting up Debezium permissions for MyKart database..."
+    
+    # Use the generic Debezium setup script
+    if [ -f "../../postgres/setup-debezium-for-database.sh" ]; then
+        ../../postgres/setup-debezium-for-database.sh mykart
+    else
+        # Fallback to direct commands if script not found
+        echo "📡 Using direct setup commands..."
+        kubectl exec postgres-wal-0 -- psql -U admin -d mydb -c "SELECT setup_debezium_for_database('mykart');"
+        kubectl exec postgres-wal-0 -- psql -U admin -d mykart -c "SELECT setup_debezium_schema_permissions();"
+        echo "✅ Debezium setup completed"
+    fi
+    
     # Verify the setup
     echo "📈 Verifying database setup..."
     

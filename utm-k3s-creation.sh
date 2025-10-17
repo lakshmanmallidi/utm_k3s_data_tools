@@ -1,0 +1,2 @@
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='--write-kubeconfig-mode=644 --disable traefik --docker' K3S_TOKEN='1432' sh -s - server
+curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker lakshman

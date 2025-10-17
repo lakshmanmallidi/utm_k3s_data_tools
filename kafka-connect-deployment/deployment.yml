@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: debezium-kafka-connect
+  labels:
+    system: debezium
+    component: kafka-connect
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      system: debezium
+      component: kafka-connect
+  template:
+    metadata:
+      labels:
+        system: debezium
+        component: kafka-connect
+    spec:
+      containers:
+      - name: kafka-connect
+        image: kafka-connect:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
+          name: kafka-http
+          protocol: TCP
+        resources:
+          limits:
+            cpu: "500m"
+            memory: 2Gi
+          requests:
+            cpu: "200m"
+            memory: 1Gi
+        command:
+        - /bin/bash
+        - -c
+        args:
+        - |
+          envsubst < /opt/kafka/etc/connect-distributed.properties-template > /opt/kafka/etc/connect-distributed.properties
+          exec /opt/kafka/bin/connect-distributed.sh /opt/kafka/etc/connect-distributed.properties
+        env:
+        - name: CLASSPATH
+          value: /opt/kafka/share/*
+        - name: KAFKA_LOG4J_OPTS
+          value: -Dlog4j.configuration=file:/opt/kafka/etc/log4j.properties
+        - name: CONNECT_CLIENT_ID
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: CONNECT_REST_ADVERTISED_HOST_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.podIP
+        volumeMounts:
+        - mountPath: /opt/kafka/etc/log4j.properties
+          name: configmap
+          subPath: log4j.properties
+        - mountPath: /opt/kafka/etc/connect-distributed.properties-template
+          name: configmap
+          subPath: connect-distributed.properties-template
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: debezium-kafka-connect-conf
+        name: configmap

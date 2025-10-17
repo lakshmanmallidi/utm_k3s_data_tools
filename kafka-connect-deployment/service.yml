@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: debezium-kafka-connect
+  labels:
+    system: debezium
+    component: kafka-connect
+    service-type: internal
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: kafka-http
+    protocol: TCP
+  selector:
+    system: debezium
+    component: kafka-connect
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: debezium-kafka-connect-external
+  labels:
+    system: debezium
+    component: kafka-connect
+    service-type: external
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: kafka-http
+    protocol: TCP
+  selector:
+    system: debezium
+    component: kafka-connect
