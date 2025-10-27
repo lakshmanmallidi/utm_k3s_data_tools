@@ -159,15 +159,17 @@ cleanup_kafka_topics() {
     
     local kafka_pod_name=$(echo $kafka_pod | cut -d'/' -f2)
     
-    # Delete MyKart topics to start fresh
-    local mykart_topics=("mykart.products" "mykart.orders" "mykart.order_line_items" "mykart.impressions" "mykart.clicks" "mykart.cart_events" "mykart.page_hits")
+    # Delete Debezium CDC topics to start fresh (NOT application topics)
+    local debezium_topics=("debezium.mykart.public.products" "debezium.mykart.public.orders" "debezium.mykart.public.order_line_items")
     
-    for topic in "${mykart_topics[@]}"; do
+    for topic in "${debezium_topics[@]}"; do
         if kubectl exec $kafka_pod_name -- /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list | grep -q "^${topic}$"; then
-            echo "🗑️  Deleting topic: $topic"
+            echo "🗑️  Deleting Debezium CDC topic: $topic"
             kubectl exec $kafka_pod_name -- /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --delete --topic $topic || true
         fi
     done
+    
+    # Note: We preserve application analytics topics (mykart.*) as they are managed by the application
     
     # Delete Kafka Connect internal topics to reset offsets
     local connect_topics=("debezium-kafka-connect-offsets" "debezium-kafka-connect-configs" "debezium-kafka-connect-status")

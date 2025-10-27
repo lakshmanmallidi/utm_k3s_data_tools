@@ -93,7 +93,7 @@ print_success "Kafka Connect is accessible internally"
 
 # Check if PostgreSQL is ready
 print_status "Verifying PostgreSQL connection..."
-if ! kubectl exec postgres-wal-0 -- psql -U admin -d mykart -c "SELECT COUNT(*) FROM impressions;" > /dev/null 2>&1; then
+if ! kubectl exec postgres-wal-0 -- psql -U admin -d mykart -c "SELECT COUNT(*) FROM products;" > /dev/null 2>&1; then
     print_error "Cannot connect to MyKart PostgreSQL database!"
     exit 1
 fi
@@ -162,18 +162,18 @@ echo "  • MyKart Connector: mykart-postgres-debezium-connector"
 echo "  • Database: mykart (PostgreSQL)"
 echo "  • Access: Internal connectivity via kubectl exec"
 echo
-print_status "Kafka Topics Created:"
-echo "  • mykart.impressions - for impression events"
-echo "  • mykart.clicks - for click events"
-echo "  • mykart.cart_events - for cart events"
-echo "  • mykart.page_hits - for page view events"
-echo "  • mykart.products - for product changes"
-echo "  • mykart.orders - for order events"
-echo "  • mykart.order_line_items - for order details"
+print_status "Kafka Topics (CDC and Application):"
+echo "  • debezium.mykart.products - for product changes (CDC)"
+echo "  • debezium.mykart.orders - for order events (CDC)"
+echo "  • debezium.mykart.order_line_items - for order details (CDC)"
+echo "  • mykart.impressions - for impression events (App)"
+echo "  • mykart.clicks - for click events (App)"
+echo "  • mykart.cart-events - for cart events (App)"
+echo "  • mykart.page-hits - for page view events (App)"
 echo
 print_status "Test the setup:"
-echo "  1. Insert data into any MyKart table"
-echo "  2. Check corresponding Kafka topic (e.g., mykart.impressions)"
+echo "  1. Insert data into any MyKart table (products, orders, order_line_items)"
+echo "  2. Check corresponding Kafka topic (e.g., debezium.mykart.products)"
 echo "  3. Monitor connector status:"
 echo "     kubectl exec $POD_NAME_ONLY -- wget -qO- http://localhost:8080/connectors/mykart-postgres-debezium-connector/status"
 echo

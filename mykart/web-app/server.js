@@ -3,6 +3,7 @@ const { Pool } = require('pg');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
+const { Kafka } = require('kafkajs');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -19,11 +20,40 @@ if (process.env.NODE_ENV === 'production') {
 // PostgreSQL connection
 const pool = new Pool({
   user: process.env.DB_USER || 'admin',
-  host: process.env.DB_HOST || 'localhost',  // Changed from 'postgres' to 'localhost' for local dev
+  host: process.env.DB_HOST || '192.168.0.25',  // Use external LoadBalancer IP
   database: process.env.DB_NAME || 'mykart',
   password: process.env.DB_PASSWORD || 'password123',
   port: process.env.DB_PORT || 5432,
 });
+
+// Kafka connection
+const kafkaBrokers = process.env.KAFKA_BROKERS || '192.168.0.25:9092';
+console.log('🔧 Kafka brokers configuration:', kafkaBrokers);
+
+const kafka = new Kafka({
+  clientId: 'mykart-webapp',
+  brokers: [kafkaBrokers],  // Use external LoadBalancer IP
+  connectionTimeout: 3000,
+  requestTimeout: 25000,
+  retry: {
+    initialRetryTime: 100,
+    retries: 8
+  }
+});
+
+const producer = kafka.producer();
+
+// Initialize Kafka producer
+const initKafka = async () => {
+  try {
+    await producer.connect();
+    console.log('✅ Connected to Kafka');
+  } catch (error) {
+    console.error('❌ Error connecting to Kafka:', error);
+  }
+};
+
+initKafka();
 
 // Test database connection
 pool.connect((err, client, release) => {
@@ -44,8 +74,19 @@ app.get('/api/products', async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const offset = (page - 1) * limit;
     
-    // Track page hit
-    await pool.query('INSERT INTO page_hits (page_name) VALUES ($1)', ['products']);
+    // Track page hit via Kafka
+    await producer.send({
+      topic: 'mykart.page-hits',
+      messages: [{
+        key: 'page-hit',
+        value: JSON.stringify({
+          page_name: 'products',
+          hit_timestamp: new Date().toISOString(),
+          user_agent: req.headers['user-agent'],
+          ip: req.ip
+        })
+      }]
+    });
     
     const result = await pool.query(
       'SELECT * FROM products ORDER BY product_id LIMIT $1 OFFSET $2',
@@ -75,8 +116,19 @@ app.get('/api/products/:id', async (req, res) => {
   try {
     const productId = req.params.id;
     
-    // Track click
-    await pool.query('INSERT INTO clicks (product_id) VALUES ($1)', [productId]);
+    // Track click via Kafka
+    await producer.send({
+      topic: 'mykart.clicks',
+      messages: [{
+        key: `product-${productId}`,
+        value: JSON.stringify({
+          product_id: parseInt(productId),
+          click_timestamp: new Date().toISOString(),
+          user_agent: req.headers['user-agent'],
+          ip: req.ip
+        })
+      }]
+    });
     
     const result = await pool.query('SELECT * FROM products WHERE product_id = $1', [productId]);
     
@@ -95,7 +147,21 @@ app.get('/api/products/:id', async (req, res) => {
 app.post('/api/impressions', async (req, res) => {
   try {
     const { productId } = req.body;
-    await pool.query('INSERT INTO impressions (product_id) VALUES ($1)', [productId]);
+    
+    // Track impression via Kafka
+    await producer.send({
+      topic: 'mykart.impressions',
+      messages: [{
+        key: `product-${productId}`,
+        value: JSON.stringify({
+          product_id: parseInt(productId),
+          impression_timestamp: new Date().toISOString(),
+          user_agent: req.headers['user-agent'],
+          ip: req.ip
+        })
+      }]
+    });
+    
     res.json({ success: true });
   } catch (err) {
     console.error('Error tracking impression:', err);
@@ -107,10 +173,23 @@ app.post('/api/impressions', async (req, res) => {
 app.post('/api/cart/add', async (req, res) => {
   try {
     const { productId, quantity } = req.body;
-    await pool.query(
-      'INSERT INTO cart_events (product_id, quantity, event_type) VALUES ($1, $2, $3)',
-      [productId, quantity || 1, 'added']
-    );
+    
+    // Track cart event via Kafka
+    await producer.send({
+      topic: 'mykart.cart-events',
+      messages: [{
+        key: `product-${productId}`,
+        value: JSON.stringify({
+          product_id: parseInt(productId),
+          quantity: quantity || 1,
+          event_type: 'added',
+          event_timestamp: new Date().toISOString(),
+          user_agent: req.headers['user-agent'],
+          ip: req.ip
+        })
+      }]
+    });
+    
     res.json({ success: true, message: 'Product added to cart' });
   } catch (err) {
     console.error('Error adding to cart:', err);
@@ -122,10 +201,23 @@ app.post('/api/cart/add', async (req, res) => {
 app.post('/api/cart/remove', async (req, res) => {
   try {
     const { productId, quantity } = req.body;
-    await pool.query(
-      'INSERT INTO cart_events (product_id, quantity, event_type) VALUES ($1, $2, $3)',
-      [productId, quantity || 1, 'removed']
-    );
+    
+    // Track cart event via Kafka
+    await producer.send({
+      topic: 'mykart.cart-events',
+      messages: [{
+        key: `product-${productId}`,
+        value: JSON.stringify({
+          product_id: parseInt(productId),
+          quantity: quantity || 1,
+          event_type: 'removed',
+          event_timestamp: new Date().toISOString(),
+          user_agent: req.headers['user-agent'],
+          ip: req.ip
+        })
+      }]
+    });
+    
     res.json({ success: true, message: 'Product removed from cart' });
   } catch (err) {
     console.error('Error removing from cart:', err);
@@ -136,36 +228,23 @@ app.post('/api/cart/remove', async (req, res) => {
 // Get cart items
 app.get('/api/cart', async (req, res) => {
   try {
-    // Track page hit
-    await pool.query('INSERT INTO page_hits (page_name) VALUES ($1)', ['cart']);
+    // Track page hit via Kafka
+    await producer.send({
+      topic: 'mykart.page-hits',
+      messages: [{
+        key: 'page-hit',
+        value: JSON.stringify({
+          page_name: 'cart',
+          hit_timestamp: new Date().toISOString(),
+          user_agent: req.headers['user-agent'],
+          ip: req.ip
+        })
+      }]
+    });
     
-    // Get current cart state (simplified - in real app you'd need user sessions)
-    const result = await pool.query(`
-      SELECT 
-        p.product_id,
-        p.name,
-        p.price,
-        p.image_url,
-        SUM(CASE 
-          WHEN ce.event_type = 'added' THEN ce.quantity
-          WHEN ce.event_type = 'increased' THEN ce.quantity  
-          WHEN ce.event_type = 'removed' THEN -ce.quantity
-          WHEN ce.event_type = 'decreased' THEN -ce.quantity
-          ELSE 0 
-        END) as quantity
-      FROM cart_events ce
-      JOIN products p ON ce.product_id = p.product_id
-      GROUP BY p.product_id, p.name, p.price, p.image_url
-      HAVING SUM(CASE 
-        WHEN ce.event_type = 'added' THEN ce.quantity
-        WHEN ce.event_type = 'increased' THEN ce.quantity  
-        WHEN ce.event_type = 'removed' THEN -ce.quantity
-        WHEN ce.event_type = 'decreased' THEN -ce.quantity
-        ELSE 0 
-      END) > 0
-    `);
-    
-    res.json({ cartItems: result.rows });
+    // Return empty cart for now - cart state would need to be managed differently
+    // without database persistence (e.g., session storage, Redis, etc.)
+    res.json({ cartItems: [] });
   } catch (err) {
     console.error('Error fetching cart:', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -212,21 +291,19 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
-// Analytics endpoints
+// Analytics endpoints (simplified - clicks/impressions now in Kafka)
 app.get('/api/analytics/summary', async (req, res) => {
   try {
-    const [productsCount, ordersCount, clicksCount, impressionsCount] = await Promise.all([
+    const [productsCount, ordersCount] = await Promise.all([
       pool.query('SELECT COUNT(*) FROM products'),
-      pool.query('SELECT COUNT(*) FROM orders'),
-      pool.query('SELECT COUNT(*) FROM clicks'),
-      pool.query('SELECT COUNT(*) FROM impressions')
+      pool.query('SELECT COUNT(*) FROM orders')
     ]);
     
     res.json({
       totalProducts: parseInt(productsCount.rows[0].count),
-      totalOrders: parseInt(ordersCount.rows[0].count), 
-      totalClicks: parseInt(clicksCount.rows[0].count),
-      totalImpressions: parseInt(impressionsCount.rows[0].count)
+      totalOrders: parseInt(ordersCount.rows[0].count),
+      totalClicks: 0, // Placeholder - will implement Kafka-based analytics later
+      totalImpressions: 0 // Placeholder - will implement Kafka-based analytics later
     });
   } catch (err) {
     console.error('Error fetching analytics:', err);
@@ -241,8 +318,29 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
+// Graceful shutdown
+const gracefulShutdown = async () => {
+  console.log('🛑 Shutting down gracefully...');
+  try {
+    await producer.disconnect();
+    console.log('✅ Kafka producer disconnected');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error during shutdown:', error);
+    process.exit(1);
+  }
+};
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 MyKart server running on port ${PORT}`);
   console.log(`📱 Access the app at: http://localhost:${PORT}`);
+  console.log(`📡 Analytics events publishing to Kafka topics:`);
+  console.log(`   - mykart.cart-events`);
+  console.log(`   - mykart.clicks`);
+  console.log(`   - mykart.impressions`);
+  console.log(`   - mykart.page-hits`);
 });

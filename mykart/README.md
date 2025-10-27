@@ -1,6 +1,6 @@
 # 🛒 MyKart E-commerce Application
 
-A full-stack e-commerce application with React frontend, Node.js backend, and PostgreSQL database. Features real-time analytics tracking including page hits, product impressions, clicks, cart events, and order management.
+A full-stack e-commerce application with React frontend, Node.js backend, PostgreSQL database, and Kafka for real-time analytics. Core data (products, orders) stored in PostgreSQL while analytics events (clicks, impressions, cart events, page hits) stream through Kafka topics.
 
 ## 🏗️ Architecture
 
@@ -24,18 +24,18 @@ MyKart Application
     └── Real-time Analytics Dashboard
 ```
 
-## 📊 Database Schema
+## 📊 Data Architecture
 
-### Core Tables
+### PostgreSQL Tables (Core Data)
 - **products** - 1000 sample products with details
 - **orders** - Order management with timestamps
 - **order_line_items** - Individual order items
-- **cart_events** - Cart interactions (add/remove/modify)
 
-### Analytics Tables
-- **clicks** - Product click tracking
-- **impressions** - Product view impressions
-- **page_hits** - Page visit analytics
+### Kafka Topics (Analytics Events)
+- **mykart-cart-events** - Cart interactions (add/remove/modify)
+- **mykart-clicks** - Product click tracking
+- **mykart-impressions** - Product view impressions
+- **mykart-page-hits** - Page visit analytics
 
 ## 🚀 Quick Start
 
@@ -133,11 +133,11 @@ mykart/
 
 | Action | Database Table | Trigger |
 |--------|---------------|---------|
-| **Page Visit** | `page_hits` | Every page load |
-| **Product Hover** | `impressions` | Mouse hover over product |
-| **Product Click** | `clicks` | Click on product card |
-| **Add to Cart** | `cart_events` | Click "Add to Cart" |
-| **Remove from Cart** | `cart_events` | Click "Remove" in cart |
+| **Page Visit** | `mykart-page-hits` | Every page load |
+| **Product Hover** | `mykart-impressions` | Mouse hover over product |
+| **Product Click** | `mykart-clicks` | Click on product card |
+| **Add to Cart** | `mykart-cart-events` | Click "Add to Cart" |
+| **Remove from Cart** | `mykart-cart-events` | Click "Remove" in cart |
 | **Place Order** | `orders` + `order_line_items` | Click "Buy Now" |
 
 ## 🔧 Configuration
@@ -164,28 +164,22 @@ const pool = new Pool({
 ## 📊 Sample Analytics Queries
 
 ```sql
--- Top 10 most clicked products
-SELECT p.name, COUNT(c.click_id) as clicks
-FROM products p
-JOIN clicks c ON p.product_id = c.product_id
-GROUP BY p.product_id, p.name
-ORDER BY clicks DESC
-LIMIT 10;
+```bash
+# Analytics data is now in Kafka topics
+# Use Kafka consumer to read events:
 
--- Cart abandonment analysis
-SELECT 
-  DATE(event_timestamp) as date,
-  COUNT(DISTINCT product_id) as products_added,
-  COUNT(DISTINCT CASE WHEN event_type = 'removed' THEN product_id END) as products_removed
-FROM cart_events
-GROUP BY DATE(event_timestamp)
-ORDER BY date DESC;
+# Monitor cart events
+kubectl exec kafka-0 -- /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic mykart-cart-events \
+  --from-beginning
 
--- Page hit analysis
-SELECT page_name, COUNT(*) as hits
-FROM page_hits
-GROUP BY page_name
-ORDER BY hits DESC;
+# Monitor clicks
+kubectl exec kafka-0 -- /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic mykart-clicks \
+  --from-beginning
+```
 ```
 
 ## 🛠️ Prerequisites

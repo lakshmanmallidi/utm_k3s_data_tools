@@ -70,8 +70,99 @@ if [ $? -eq 0 ]; then
     
     # List tables
     echo "   📋 Tables created:"
-    kubectl exec postgres-wal-0 -- psql -U admin -d mykart -c "\dt" | grep -E "products|orders|order_line_items|cart_events|clicks|impressions|page_hits" | awk '{print "      - " $3}'
+    kubectl exec postgres-wal-0 -- psql -U admin -d mykart -c "\dt" | grep -E "products|orders|order_line_items" | awk '{print "      - " $3}'
     
+    
+    # Create Kafka topics for analytics events
+    echo "🚀 Managing Kafka topics for analytics events..."
+    
+    # Check if Kafka is running
+    if kubectl get pod kafka-kraft-0 &> /dev/null; then
+        echo "   🧹 Cleaning up any existing application MyKart topics..."
+        
+        # Get list of existing application MyKart topics (not Debezium CDC topics)
+        EXISTING_APP_TOPICS=$(kubectl exec kafka-kraft-0 -- /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server localhost:9092 \
+            --list 2>/dev/null | grep "^mykart\." | grep -v "^debezium\.mykart" || echo "")
+            
+        if [ ! -z "$EXISTING_APP_TOPICS" ]; then
+            echo "   🗑️  Deleting existing application topics..."
+            for topic in $EXISTING_APP_TOPICS; do
+                echo "      Deleting: $topic"
+                kubectl exec kafka-kraft-0 -- /opt/kafka/bin/kafka-topics.sh \
+                    --bootstrap-server localhost:9092 \
+                    --delete --topic "$topic" >/dev/null 2>&1
+            done
+            echo "   ✅ Application topic cleanup completed"
+        else
+            echo "   ℹ️  No existing application MyKart topics found"
+        fi
+        
+        # Check if Debezium CDC topics exist
+        CDC_TOPICS=$(kubectl exec kafka-kraft-0 -- /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server localhost:9092 \
+            --list 2>/dev/null | grep "^debezium\.mykart" || echo "")
+            
+        if [ ! -z "$CDC_TOPICS" ]; then
+            echo "   ℹ️  Preserving existing Debezium CDC topics:"
+            for topic in $CDC_TOPICS; do
+                echo "      Preserved: $topic"
+            done
+        fi
+        
+        echo "   📡 Creating analytics topics with new naming convention..."
+        
+        # Create topics for analytics events (application topics)
+        kubectl exec kafka-kraft-0 -- /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server localhost:9092 \
+            --create \
+            --topic mykart.cart-events \
+            --partitions 3 \
+            --replication-factor 1 \
+            --config cleanup.policy=delete \
+            --config retention.ms=604800000
+            
+        kubectl exec kafka-kraft-0 -- /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server localhost:9092 \
+            --create \
+            --topic mykart.clicks \
+            --partitions 3 \
+            --replication-factor 1 \
+            --config cleanup.policy=delete \
+            --config retention.ms=604800000
+            
+        kubectl exec kafka-kraft-0 -- /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server localhost:9092 \
+            --create \
+            --topic mykart.impressions \
+            --partitions 3 \
+            --replication-factor 1 \
+            --config cleanup.policy=delete \
+            --config retention.ms=604800000
+            
+        kubectl exec kafka-kraft-0 -- /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server localhost:9092 \
+            --create \
+            --topic mykart.page-hits \
+            --partitions 3 \
+            --replication-factor 1 \
+            --config cleanup.policy=delete \
+            --config retention.ms=604800000
+            
+        echo "   ✅ Analytics topics created successfully!"
+        
+        # List created topics
+        echo "   📋 Application analytics topics:"
+        kubectl exec kafka-kraft-0 -- /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server localhost:9092 \
+            --list | grep "mykart\." | grep -v "debezium" | sort | awk '{print "      - " $1}'
+            
+        echo "   ℹ️  Note: Debezium CDC topics will be created automatically when connector starts"
+    else
+        echo "   ⚠️  Kafka not found - skipping topic creation"
+        echo "   ℹ️  Make sure to deploy Kafka and run this script again to create topics"
+    fi
+
     echo ""
     echo "🎉 MyKart database is ready!"
     echo ""

@@ -40,35 +40,8 @@ CREATE TABLE order_line_items (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Cart events table
-CREATE TABLE cart_events (
-    cart_event_id SERIAL PRIMARY KEY,
-    product_id INTEGER REFERENCES products(product_id),
-    quantity INTEGER NOT NULL,
-    event_type VARCHAR(50) NOT NULL, -- 'added', 'removed', 'increased', 'decreased'
-    event_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 5. Clicks table
-CREATE TABLE clicks (
-    click_id SERIAL PRIMARY KEY,
-    product_id INTEGER REFERENCES products(product_id),
-    click_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 6. Impressions table
-CREATE TABLE impressions (
-    impression_id SERIAL PRIMARY KEY,
-    product_id INTEGER REFERENCES products(product_id),
-    impression_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 7. Page hits table
-CREATE TABLE page_hits (
-    hit_id SERIAL PRIMARY KEY,
-    page_name VARCHAR(100) NOT NULL,
-    hit_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- Note: Analytics tables (cart_events, clicks, impressions, page_hits) 
+-- are now handled via Kafka topics instead of PostgreSQL tables
 
 -- Insert 1000 sample products
 INSERT INTO products (name, description, price, category, brand, stock_quantity, image_url) VALUES
@@ -163,25 +136,8 @@ INSERT INTO order_line_items (order_id, product_id, quantity, price) VALUES
 -- Create indexes for better performance
 CREATE INDEX idx_products_category ON products(category);
 CREATE INDEX idx_products_price ON products(price);
-CREATE INDEX idx_clicks_product_timestamp ON clicks(product_id, click_timestamp);
-CREATE INDEX idx_impressions_product_timestamp ON impressions(product_id, impression_timestamp);
-CREATE INDEX idx_cart_events_timestamp ON cart_events(event_timestamp);
-CREATE INDEX idx_page_hits_timestamp ON page_hits(hit_timestamp);
 
--- Create a view for product analytics
-CREATE VIEW product_analytics AS
-SELECT 
-    p.product_id,
-    p.name,
-    p.price,
-    p.category,
-    COUNT(DISTINCT c.click_id) as total_clicks,
-    COUNT(DISTINCT i.impression_id) as total_impressions,
-    COUNT(DISTINCT ce.cart_event_id) as cart_events
-FROM products p
-LEFT JOIN clicks c ON p.product_id = c.product_id
-LEFT JOIN impressions i ON p.product_id = i.product_id
-LEFT JOIN cart_events ce ON p.product_id = ce.product_id
-GROUP BY p.product_id, p.name, p.price, p.category;
+-- Analytics views removed - data now flows through Kafka topics
 
-PRINT 'MyKart database initialized successfully with 1000 products!';
+-- Database initialization complete
+SELECT 'MyKart database initialized successfully with ' || COUNT(*) || ' products!' AS initialization_status FROM products;

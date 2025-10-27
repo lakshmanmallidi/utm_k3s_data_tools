@@ -35,7 +35,7 @@ spec:
         - containerPort: 8080
 
 ---
-# Kafka UI Service - NodePort
+# Kafka UI Service - LoadBalancer
 apiVersion: v1
 kind: Service
 metadata:
@@ -45,10 +45,9 @@ metadata:
 spec:
   selector:
     app: kafka-ui
-  type: NodePort
+  type: LoadBalancer
   ports:
     - protocol: TCP
-      port: 8080
+      port: 8090
       targetPort: 8080
-      nodePort: 30080
       name: http

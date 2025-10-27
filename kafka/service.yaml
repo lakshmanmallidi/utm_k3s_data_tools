@@ -26,7 +26,7 @@ spec:
   type: LoadBalancer
   ports:
   - port: 9092
-    targetPort: 9092
+    targetPort: 9094
     name: kafka
   selector:
     app: kafka-kraft
