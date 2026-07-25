@@ -33,16 +33,17 @@ kube-system/
 *.yml.backup
 
 # Kubernetes Secrets and Sensitive Data
-*secret*.yaml
-*secret*.yml
-*configmap*.yaml
-*configmap*.yml
-tls-*.yaml
-certificates/
-*.pem
-*.key
-*.crt
-*.csr
+# Commented out for practice repo - secrets are tracked
+# *secret*.yaml
+# *secret*.yml
+# *configmap*.yaml
+# *configmap*.yml
+# tls-*.yaml
+# certificates/
+# *.pem
+# *.key
+# *.crt
+# *.csr
 
 # Kafka Related Files
 kafka-logs/

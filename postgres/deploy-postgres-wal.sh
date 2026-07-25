@@ -73,8 +73,19 @@ print_success "Connected to Kubernetes cluster"
 wait_for_pod() {
     local pod_name=$1
     local timeout=${2:-300}
+    local elapsed=0
     
     print_status "Waiting for pod $pod_name to be ready (timeout: ${timeout}s)..."
+
+    # StatefulSet pod creation is asynchronous; wait until the pod resource exists.
+    while ! kubectl get pod "$pod_name" >/dev/null 2>&1; do
+        if [ "$elapsed" -ge "$timeout" ]; then
+            print_error "Pod $pod_name was not created within ${timeout}s"
+            return 1
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
     
     if kubectl wait --for=condition=Ready pod/$pod_name --timeout=${timeout}s; then
         print_success "Pod $pod_name is ready"

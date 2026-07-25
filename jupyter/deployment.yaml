@@ -1,0 +1,161 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jupyter-notebook
+  labels:
+    app: jupyter-notebook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jupyter-notebook
+  template:
+    metadata:
+      labels:
+        app: jupyter-notebook
+    spec:
+      serviceAccountName: spark-sa
+      automountServiceAccountToken: true
+      initContainers:
+      - name: java17-runtime
+        image: eclipse-temurin:17-jdk-jammy
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -c
+        args:
+        - |
+          set -e
+          cp -a /opt/java/openjdk/. /java17/
+        volumeMounts:
+        - name: java17
+          mountPath: /java17
+      - name: seed-workspace
+        image: minio/mc:latest
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - secretRef:
+            name: minio-credentials
+        env:
+        - name: MINIO_ENDPOINT
+          value: http://minio:9000
+        - name: NOTEBOOK_BUCKET
+          value: notebook-pod
+        command:
+        - /bin/sh
+        - -c
+        args:
+        - |
+          set -e
+          mc alias set minio "${MINIO_ENDPOINT}" "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
+          mc mb --ignore-existing "minio/${NOTEBOOK_BUCKET}"
+          mc mirror --overwrite "minio/${NOTEBOOK_BUCKET}" /workspace || true
+          chown -R 1000:100 /workspace
+          chmod -R g+rwX /workspace
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+      containers:
+      - name: jupyter
+        image: jupyter/base-notebook:2023-05-30
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - secretRef:
+            name: jupyter-notebook-token
+        - secretRef:
+            name: minio-credentials
+        env:
+        - name: JAVA_HOME
+          value: /opt/java17
+        - name: PYSPARK_PYTHON
+          value: python3.10
+        - name: PYSPARK_DRIVER_PYTHON
+          value: python3.10
+        command:
+        - /bin/bash
+        - -lc
+        args:
+        - |
+          export PY_DEPS_DIR="/home/jovyan/work/.python"
+          export PIP_CACHE_DIR="/home/jovyan/work/.cache/pip"
+          mkdir -p "${PY_DEPS_DIR}" "${PIP_CACHE_DIR}"
+          export PYTHONPATH="${PY_DEPS_DIR}:${PYTHONPATH:-}"
+          if python3.10 -c 'import kubernetes' >/dev/null 2>&1; then
+            echo "kubernetes package already available in workspace cache" >/tmp/bootstrap-kubernetes.log
+          else
+            python3.10 -m pip install --default-timeout=120 --cache-dir "${PIP_CACHE_DIR}" --target "${PY_DEPS_DIR}" --upgrade kubernetes >/tmp/bootstrap-kubernetes.log 2>&1
+          fi
+          if python3.10 -c 'import pyspark, sys; sys.exit(0 if pyspark.__version__.startswith("3.4") else 1)' >/dev/null 2>&1; then
+            echo "pyspark==3.4 already available in workspace cache" >/tmp/bootstrap-pyspark.log
+          else
+            python3.10 -m pip install --default-timeout=300 --cache-dir "${PIP_CACHE_DIR}" --target "${PY_DEPS_DIR}" --upgrade "pyspark==3.4.4" >/tmp/bootstrap-pyspark.log 2>&1
+          fi
+          export SPARK_HOME="$(python3.10 -c 'import os, pyspark; print(os.path.dirname(pyspark.__file__))')"
+          export ICEBERG_JAR_URL="https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-3.4_2.12/1.5.2/iceberg-spark-runtime-3.4_2.12-1.5.2.jar"
+          export ICEBERG_JAR_PATH="${SPARK_HOME}/jars/iceberg-spark-runtime-3.4_2.12-1.5.2.jar"
+          if [ ! -f "${ICEBERG_JAR_PATH}" ]; then
+            python3.10 -c 'import os, urllib.request; urllib.request.urlretrieve(os.environ["ICEBERG_JAR_URL"], os.environ["ICEBERG_JAR_PATH"])'
+          fi
+          export PATH="${SPARK_HOME}/bin:${PATH}"
+          exec start-notebook.sh \
+            --ServerApp.ip=0.0.0.0 \
+            --ServerApp.port=8888 \
+            --ServerApp.root_dir=/home/jovyan/work \
+            --ServerApp.allow_origin='*' \
+            --ServerApp.token="${JUPYTER_TOKEN}" \
+            --ServerApp.password=''
+        ports:
+        - containerPort: 8888
+          name: notebook
+        - containerPort: 4040
+          name: spark-ui
+        volumeMounts:
+        - name: java17
+          mountPath: /opt/java17
+        - name: workspace
+          mountPath: /home/jovyan/work
+        startupProbe:
+          tcpSocket:
+            port: 8888
+          failureThreshold: 180
+          periodSeconds: 5
+        readinessProbe:
+          tcpSocket:
+            port: 8888
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 8888
+          initialDelaySeconds: 60
+          periodSeconds: 20
+      - name: sync-to-minio
+        image: minio/mc:latest
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - secretRef:
+            name: minio-credentials
+        env:
+        - name: MINIO_ENDPOINT
+          value: http://minio:9000
+        - name: NOTEBOOK_BUCKET
+          value: notebook-pod
+        command:
+        - /bin/sh
+        - -c
+        args:
+        - |
+          set -e
+          mc alias set minio "${MINIO_ENDPOINT}" "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
+          while true; do
+            mc mirror --overwrite --watch /home/jovyan/work "minio/${NOTEBOOK_BUCKET}" || true
+            sleep 2
+          done
+        volumeMounts:
+        - name: workspace
+          mountPath: /home/jovyan/work
+      volumes:
+      - name: java17
+        emptyDir: {}
+      - name: workspace
+        emptyDir: {}

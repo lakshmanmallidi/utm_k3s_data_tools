@@ -1,0 +1,134 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nessie
+  labels:
+    app: nessie
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nessie
+  template:
+    metadata:
+      labels:
+        app: nessie
+    spec:
+      initContainers:
+        - name: bootstrap-nessie-postgres
+          image: postgres:15-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_HOST
+              value: postgres-wal
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_ADMIN_USER
+              value: admin
+            - name: POSTGRES_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: NESSIE_DB
+              value: nessie
+            - name: NESSIE_USER
+              value: nessie
+            - name: NESSIE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nessie-postgres-credentials
+                  key: password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              #!/bin/sh
+              set -e
+              
+              POSTGRES_HOST=${POSTGRES_HOST:-postgres-wal}
+              POSTGRES_PORT=${POSTGRES_PORT:-5432}
+              POSTGRES_ADMIN_USER=${POSTGRES_ADMIN_USER:-admin}
+              NESSIE_DB=${NESSIE_DB:-nessie}
+              NESSIE_USER=${NESSIE_USER:-nessie}
+              
+              echo "[INFO] Waiting for PostgreSQL to be ready at ${POSTGRES_HOST}:${POSTGRES_PORT}..."
+              max_retries=30
+              retry_count=0
+              while [ $retry_count -lt $max_retries ]; do
+                if PGPASSWORD="$POSTGRES_ADMIN_PASSWORD" psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_ADMIN_USER" -d postgres -c "SELECT 1" &>/dev/null; then
+                  echo "[SUCCESS] PostgreSQL is ready!"
+                  break
+                fi
+                retry_count=$((retry_count + 1))
+                if [ $retry_count -ge $max_retries ]; then
+                  echo "[ERROR] PostgreSQL did not become ready after $max_retries attempts"
+                  exit 1
+                fi
+                echo "Attempt $retry_count/$max_retries - retrying in 2 seconds..."
+                sleep 2
+              done
+              
+              echo "[INFO] Creating Nessie database and user..."
+              PGPASSWORD="$POSTGRES_ADMIN_PASSWORD" psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_ADMIN_USER" -d postgres <<EOF
+              CREATE DATABASE "$NESSIE_DB" ENCODING 'UTF8';
+              DO \$\$
+              BEGIN
+                CREATE USER "$NESSIE_USER" WITH PASSWORD '$NESSIE_PASSWORD';
+              EXCEPTION WHEN duplicate_object THEN
+                RAISE NOTICE 'User $NESSIE_USER already exists';
+              END
+              \$\$;
+              GRANT ALL PRIVILEGES ON DATABASE "$NESSIE_DB" TO "$NESSIE_USER";
+              ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "$NESSIE_USER";
+              ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "$NESSIE_USER";
+              EOF
+
+              echo "[INFO] Granting public schema permissions (PostgreSQL 15+)..."
+              PGPASSWORD="$POSTGRES_ADMIN_PASSWORD" psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_ADMIN_USER" -d "$NESSIE_DB" <<EOF
+              GRANT ALL ON SCHEMA public TO "$NESSIE_USER";
+              ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "$NESSIE_USER";
+              ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "$NESSIE_USER";
+              EOF
+              
+              echo "[SUCCESS] Nessie PostgreSQL backend initialization complete!"
+      containers:
+        - name: nessie
+          image: projectnessie/nessie:0.76.6
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: QUARKUS_HTTP_PORT
+              value: "19120"
+            - name: NESSIE_VERSION_STORE_TYPE
+              value: JDBC
+            - name: QUARKUS_DATASOURCE_JDBC_URL
+              value: "jdbc:postgresql://postgres-wal:5432/nessie"
+            - name: QUARKUS_DATASOURCE_USERNAME
+              value: nessie
+            - name: QUARKUS_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nessie-postgres-credentials
+                  key: password
+          ports:
+            - name: http
+              containerPort: 19120
+          readinessProbe:
+            httpGet:
+              path: /q/health/ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /q/health/live
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 800m
+              memory: 1Gi
