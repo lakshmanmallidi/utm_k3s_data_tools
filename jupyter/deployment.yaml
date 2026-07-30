@@ -76,7 +76,7 @@ spec:
         - -lc
         args:
         - |
-          export PY_DEPS_DIR="/home/jovyan/work/.python"
+          export PY_DEPS_DIR="/home/jovyan/.python"
           export PIP_CACHE_DIR="/home/jovyan/work/.cache/pip"
           mkdir -p "${PY_DEPS_DIR}" "${PIP_CACHE_DIR}"
           export PYTHONPATH="${PY_DEPS_DIR}:${PYTHONPATH:-}"
@@ -85,12 +85,15 @@ spec:
           else
             python3.10 -m pip install --default-timeout=120 --cache-dir "${PIP_CACHE_DIR}" --target "${PY_DEPS_DIR}" --upgrade kubernetes >/tmp/bootstrap-kubernetes.log 2>&1
           fi
-          if python3.10 -c 'import pyspark, sys; sys.exit(0 if pyspark.__version__.startswith("3.4") else 1)' >/dev/null 2>&1; then
+          if python3.10 -c 'import os, pyspark, sys; spark_home = os.path.dirname(pyspark.__file__); spark_submit = os.path.join(spark_home, "bin", "spark-submit"); sys.exit(0 if pyspark.__version__.startswith("3.4") and os.path.exists(spark_submit) and os.access(spark_submit, os.X_OK) else 1)' >/dev/null 2>&1; then
             echo "pyspark==3.4 already available in workspace cache" >/tmp/bootstrap-pyspark.log
           else
             python3.10 -m pip install --default-timeout=300 --cache-dir "${PIP_CACHE_DIR}" --target "${PY_DEPS_DIR}" --upgrade "pyspark==3.4.4" >/tmp/bootstrap-pyspark.log 2>&1
           fi
           export SPARK_HOME="$(python3.10 -c 'import os, pyspark; print(os.path.dirname(pyspark.__file__))')"
+          if [ -d "${SPARK_HOME}/bin" ]; then
+            chmod +x "${SPARK_HOME}/bin"/* || true
+          fi
           export ICEBERG_JAR_URL="https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-3.4_2.12/1.5.2/iceberg-spark-runtime-3.4_2.12-1.5.2.jar"
           export ICEBERG_JAR_PATH="${SPARK_HOME}/jars/iceberg-spark-runtime-3.4_2.12-1.5.2.jar"
           if [ ! -f "${ICEBERG_JAR_PATH}" ]; then

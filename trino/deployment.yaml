@@ -1,0 +1,152 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-config
+  labels:
+    app: trino
+data:
+  node.properties: |
+    node.environment=default
+    node.id=trino-coordinator-1
+    node.data-dir=/tmp/trino/data
+  jvm.config: |
+    -server
+    -Xmx1G
+    -XX:+UseG1GC
+    -XX:+ExplicitGCInvokesConcurrent
+    -XX:+ExitOnOutOfMemoryError
+    -XX:+HeapDumpOnOutOfMemoryError
+  config.properties: |
+    coordinator=true
+    node-scheduler.include-coordinator=true
+    http-server.http.port=8080
+    discovery.uri=http://127.0.0.1:8080
+    query.max-memory=1GB
+    query.max-memory-per-node=512MB
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trino
+  labels:
+    app: trino
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trino
+  template:
+    metadata:
+      labels:
+        app: trino
+    spec:
+      initContainers:
+        - name: bootstrap-trino-warehouse
+          image: minio/mc:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MINIO_ENDPOINT
+              value: http://minio:9000
+            - name: TRINO_WAREHOUSE_BUCKET
+              value: warehouse
+            - name: TRINO_WAREHOUSE_PREFIX
+              value: iceberg
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_PASSWORD
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              set -e
+              mc alias set minio "${MINIO_ENDPOINT}" "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
+              mc mb --ignore-existing "minio/${TRINO_WAREHOUSE_BUCKET}"
+              if ! mc stat "minio/${TRINO_WAREHOUSE_BUCKET}/${TRINO_WAREHOUSE_PREFIX}/.keep" >/dev/null 2>&1; then
+                printf '' | mc pipe "minio/${TRINO_WAREHOUSE_BUCKET}/${TRINO_WAREHOUSE_PREFIX}/.keep"
+              fi
+      containers:
+        - name: trino
+          image: trinodb/trino:483
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TRINO_NESSIE_URI
+              value: http://nessie:19120/api/v1
+            - name: TRINO_WAREHOUSE
+              value: s3://warehouse/iceberg
+            - name: TRINO_S3_ENDPOINT
+              value: http://minio:9000
+            - name: TRINO_S3_REGION
+              value: us-east-1
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_PASSWORD
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              set -e
+              cp /config/node.properties /etc/trino/node.properties
+              cp /config/jvm.config /etc/trino/jvm.config
+              cp /config/config.properties /etc/trino/config.properties
+
+              cat > /etc/trino/catalog/nessie.properties <<EOF
+              connector.name=iceberg
+              iceberg.catalog.type=nessie
+              iceberg.nessie-catalog.uri=${TRINO_NESSIE_URI}
+              iceberg.nessie-catalog.ref=main
+              iceberg.nessie-catalog.default-warehouse-dir=${TRINO_WAREHOUSE}
+
+              fs.s3.enabled=true
+              s3.endpoint=${TRINO_S3_ENDPOINT}
+              s3.region=${TRINO_S3_REGION}
+              s3.path-style-access=true
+              s3.aws-access-key=${MINIO_ROOT_USER}
+              s3.aws-secret-key=${MINIO_ROOT_PASSWORD}
+              EOF
+
+              exec /usr/lib/trino/bin/run-trino
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /v1/info
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /v1/info
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          volumeMounts:
+            - name: trino-config
+              mountPath: /config
+      volumes:
+        - name: trino-config
+          configMap:
+            name: trino-config

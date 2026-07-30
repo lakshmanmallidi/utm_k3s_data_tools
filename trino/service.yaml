@@ -1,15 +1,15 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: nessie
+  name: trino
   labels:
-    app: nessie
+    app: trino
 spec:
   type: LoadBalancer
   selector:
-    app: nessie
+    app: trino
   ports:
     - name: http
-      port: 19120
-      targetPort: 19120
-      nodePort: 30401
+      port: 8080
+      targetPort: 8080
+      nodePort: 30402

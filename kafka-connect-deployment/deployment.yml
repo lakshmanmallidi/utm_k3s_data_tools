@@ -19,10 +19,10 @@ spec:
     spec:
       containers:
       - name: kafka-connect
-        image: kafka-connect:latest
-        imagePullPolicy: Never
+        image: quay.io/debezium/connect:2.7.3.Final
+        imagePullPolicy: IfNotPresent
         ports:
-        - containerPort: 8080
+        - containerPort: 8083
           name: kafka-http
           protocol: TCP
         resources:
@@ -32,18 +32,37 @@ spec:
           requests:
             cpu: "200m"
             memory: 1Gi
-        command:
-        - /bin/bash
-        - -c
-        args:
-        - |
-          envsubst < /opt/kafka/etc/connect-distributed.properties-template > /opt/kafka/etc/connect-distributed.properties
-          exec /opt/kafka/bin/connect-distributed.sh /opt/kafka/etc/connect-distributed.properties
         env:
-        - name: CLASSPATH
-          value: /opt/kafka/share/*
-        - name: KAFKA_LOG4J_OPTS
-          value: -Dlog4j.configuration=file:/opt/kafka/etc/log4j.properties
+        - name: BOOTSTRAP_SERVERS
+          value: kafka:9092
+        - name: GROUP_ID
+          value: debezium-kafka-connect-cluster
+        - name: CONFIG_STORAGE_TOPIC
+          value: debezium-kafka-connect-configs
+        - name: OFFSET_STORAGE_TOPIC
+          value: debezium-kafka-connect-offsets
+        - name: STATUS_STORAGE_TOPIC
+          value: debezium-kafka-connect-status
+        - name: CONFIG_STORAGE_REPLICATION_FACTOR
+          value: "1"
+        - name: OFFSET_STORAGE_REPLICATION_FACTOR
+          value: "1"
+        - name: STATUS_STORAGE_REPLICATION_FACTOR
+          value: "1"
+        - name: KEY_CONVERTER
+          value: org.apache.kafka.connect.json.JsonConverter
+        - name: VALUE_CONVERTER
+          value: org.apache.kafka.connect.json.JsonConverter
+        - name: KEY_CONVERTER_SCHEMAS_ENABLE
+          value: "false"
+        - name: VALUE_CONVERTER_SCHEMAS_ENABLE
+          value: "false"
+        - name: CONNECT_PLUGIN_PATH
+          value: /kafka/connect
+        - name: CONNECT_REST_PORT
+          value: "8083"
+        - name: CONNECT_REST_ADVERTISED_PORT
+          value: "8083"
         - name: CONNECT_CLIENT_ID
           valueFrom:
             fieldRef:
@@ -58,9 +77,6 @@ spec:
         - mountPath: /opt/kafka/etc/log4j.properties
           name: configmap
           subPath: log4j.properties
-        - mountPath: /opt/kafka/etc/connect-distributed.properties-template
-          name: configmap
-          subPath: connect-distributed.properties-template
       volumes:
       - configMap:
           defaultMode: 420

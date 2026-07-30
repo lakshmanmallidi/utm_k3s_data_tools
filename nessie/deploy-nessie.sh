@@ -11,6 +11,7 @@ case "${1:-deploy}" in
         kubectl rollout status deployment/nessie --timeout=300s
         echo "✓ Nessie deployed"
         echo "  Endpoint: http://nessie.default.svc.cluster.local:19120/api/v1"
+        echo "  UI (Swagger): http://nessie.default.svc.cluster.local:19120/q/swagger-ui"
         ;;
     delete)
         echo "Deleting Nessie catalog..."

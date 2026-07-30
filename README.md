@@ -40,6 +40,7 @@ Perfect for:
 | **Debezium** | Change Data Capture (CDC) | Latest |
 | **Kafka** | Event streaming platform | KRaft mode |
 | **Nessie** | Iceberg catalog for table versioning | 0.76.6 |
+| **Trino** | Distributed SQL engine for lakehouse querying | 483 |
 | **Spark** | Distributed analytics engine | 3.4.4 |
 | **Jupyter** | Notebook-based exploration | Latest |
 | **MinIO** | S3-compatible object storage | Latest |
@@ -288,6 +289,18 @@ cd ../../jupyter
 - MinIO storage mounted for data persistence
 - Nessie catalog ready to query
 
+#### 9️⃣ Deploy Trino SQL Engine
+```bash
+cd ../trino
+./deploy-trino.sh deploy
+```
+
+**What happens**:
+- Trino coordinator starts on port 8080
+- Iceberg catalog is configured with Nessie metadata
+- Data files are read from MinIO (S3-compatible)
+- Trino service is exposed via Kubernetes LoadBalancer
+
 ## 📊 Verify Your Setup
 
 ### Check All Components
@@ -311,6 +324,7 @@ kubectl exec kafka-kraft-0 -- /opt/kafka/bin/kafka-topics.sh --bootstrap-server 
 | **PostgreSQL** | 192.168.0.25:5432 | admin/password123 |
 | **Nessie API** | http://nessie.default.svc:19120/api/v1 | None |
 | **MinIO** | http://minio.default.svc:9000 | minioadmin/minioadmin |
+| **Trino** | http://trino.default.svc:8080 | None |
 
 ## 📖 Learning Paths
 

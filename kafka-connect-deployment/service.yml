@@ -9,8 +9,8 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-  - port: 8080
-    targetPort: 8080
+  - port: 8083
+    targetPort: 8083
     name: kafka-http
     protocol: TCP
   selector:
@@ -28,8 +28,8 @@ metadata:
 spec:
   type: LoadBalancer
   ports:
-  - port: 8080
-    targetPort: 8080
+  - port: 8083
+    targetPort: 8083
     name: kafka-http
     protocol: TCP
   selector:

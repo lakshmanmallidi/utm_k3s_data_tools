@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: debezium-kafka-connect-conf
+  labels:
+    system: debezium
+    component: kafka-connect
+data:
+  connect-distributed.properties-template: |
+    bootstrap.servers=kafka:9092
+    group.id=debezium-kafka-connect-cluster
+
+    key.converter=org.apache.kafka.connect.json.JsonConverter
+    value.converter=org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable=false
+    value.converter.schemas.enable=false
+
+    offset.storage.topic=debezium-kafka-connect-offsets
+    config.storage.topic=debezium-kafka-connect-configs
+    status.storage.topic=debezium-kafka-connect-status
+
+    offset.storage.replication.factor=1
+    config.storage.replication.factor=1
+    status.storage.replication.factor=1
+
+    offset.flush.interval.ms=10000
+
+    plugin.path=/opt/kafka/plugins,/kafka/connect,/usr/share/java
+
+    rest.host.name=${CONNECT_REST_ADVERTISED_HOST_NAME}
+    rest.port=8080
+    client.id=${CONNECT_CLIENT_ID}
+
+  log4j.properties: |
+    log4j.rootLogger=INFO, stdout
+    log4j.appender.stdout=org.apache.log4j.ConsoleAppender
+    log4j.appender.stdout.layout=org.apache.log4j.PatternLayout
+    log4j.appender.stdout.layout.ConversionPattern=[%d] %p %m (%c)%n
